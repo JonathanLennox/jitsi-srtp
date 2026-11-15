@@ -91,9 +91,10 @@ class SrtpKdf
             break;
 
         case SrtpPolicy.NULL_ENCRYPTION:
-        default:
             cipherCtr = null;
             break;
+        default:
+            throw new IllegalArgumentException("Unknown encryption type " + policy.getEncType());
         }
 
         if (cipherCtr != null)

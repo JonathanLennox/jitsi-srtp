@@ -551,6 +551,28 @@ public class SrtpValidationTest {
     }
 
     @Test
+    public void unknownTypesAreRefused() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpPolicy unknownEncryption =
+            new SrtpPolicy(99, 128/8, SrtpPolicy.HMACSHA1_AUTHENTICATION, 160/8, 80/8, 112/8);
+        SrtpContextFactory factory =
+            new SrtpContextFactory(true, test_key, test_key_salt, unknownEncryption, unknownEncryption, logger);
+        assertThrows(IllegalArgumentException.class, () -> factory.deriveContext(0xcafebabe, 0));
+        assertThrows(IllegalArgumentException.class, () -> factory.deriveControlContext(0xcafebabe));
+        factory.close();
+
+        SrtpPolicy unknownAuthentication =
+            new SrtpPolicy(SrtpPolicy.AESCM_ENCRYPTION, 128/8, 99, 160/8, 80/8, 112/8);
+        SrtpContextFactory factory2 = new SrtpContextFactory(
+            true, test_key, test_key_salt, unknownAuthentication, unknownAuthentication, logger);
+        assertThrows(IllegalArgumentException.class, () -> factory2.deriveContext(0xcafebabe, 0));
+        assertThrows(IllegalArgumentException.class, () -> factory2.deriveControlContext(0xcafebabe));
+        factory2.close();
+    }
+
+    @Test
     public void srtpValidateGcm() throws Exception
     {
         Logger logger = new LoggerImpl(getClass().getName());
