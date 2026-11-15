@@ -417,6 +417,60 @@ public class SrtpValidationTest {
             4 + 128/8);
     }
 
+    private static final SrtpPolicy F8_POLICY =
+        new SrtpPolicy(SrtpPolicy.AESF8_ENCRYPTION, 128/8,
+            SrtpPolicy.HMACSHA1_AUTHENTICATION, 160/8,
+            80/8, 112/8 );
+
+    /**
+     * Protects the reference RTP packet with F8, and checks that all of the payload is encrypted and that a receiver
+     * gets the packet back.
+     */
+    @Test
+    public void srtpF8RoundTrip() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+        SrtpContextFactory receiverFactory =
+            new SrtpContextFactory(false, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+
+        for (int offset : new int[] { 0, 7 })
+        {
+            ByteArrayBuffer rtpPkt = packetInBuffer(rtp_plaintext_ref, offset, 0);
+
+            assertEquals(SrtpErrorStatus.OK, senderFactory.deriveContext(0xcafebabe, 0).transformPacket(rtpPkt));
+            assertEquals(rtp_plaintext_ref.length + 80/8, rtpPkt.getLength());
+            /* The RTP header is 12 bytes, and everything after it is encrypted. */
+            assertEncrypted(rtp_plaintext_ref, rtpPkt, 12, rtp_plaintext_ref.length);
+
+            assertEquals(SrtpErrorStatus.OK,
+                receiverFactory.deriveContext(0xcafebabe, 0).reverseTransformPacket(rtpPkt, false));
+            assertByteArrayBufferEquals(rtp_plaintext_ref, rtpPkt);
+        }
+
+        senderFactory.close();
+        receiverFactory.close();
+    }
+
+    /**
+     * Checks that {@code pkt} starts with the first {@code from} bytes of {@code plaintext}, and that no run of 4
+     * bytes from {@code from} to {@code to} is the same as in {@code plaintext}.
+     */
+    private static void assertEncrypted(byte[] plaintext, ByteArrayBuffer pkt, int from, int to)
+    {
+        byte[] data = Arrays.copyOfRange(pkt.getBuffer(), pkt.getOffset(), pkt.getOffset() + pkt.getLength());
+
+        assertArrayEquals(Arrays.copyOf(plaintext, from), Arrays.copyOf(data, from));
+        for (int i = from; i + 4 <= to; i++)
+        {
+            assertFalse(
+                Arrays.equals(Arrays.copyOfRange(plaintext, i, i + 4), Arrays.copyOfRange(data, i, i + 4)),
+                "bytes " + i + " to " + (i + 3) + " are not encrypted");
+        }
+    }
+
     @Test
     public void srtpValidateGcm() throws Exception
     {
