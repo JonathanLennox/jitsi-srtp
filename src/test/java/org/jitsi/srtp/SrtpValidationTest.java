@@ -502,6 +502,54 @@ public class SrtpValidationTest {
         receiverFactory.close();
     }
 
+    /**
+     * A receiver accepts an SRTCP packet which is authenticated with AES-GCM and not encrypted, wherever the packet
+     * is in its buffer.
+     */
+    @Test
+    public void srtcpGcmWithoutEncryption() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.AESGCM_ENCRYPTION, 128/8,
+                SrtpPolicy.NULL_AUTHENTICATION, 0,
+                128/8, 96/8 );
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key_gcm, test_key_salt_gcm, policy, policy, logger);
+        SrtpContextFactory receiverFactory =
+            new SrtpContextFactory(false, test_key_gcm, test_key_salt_gcm, policy, policy, logger);
+
+        for (int offset : new int[] { 0, 7 })
+        {
+            ByteArrayBuffer rtcpPkt = packetInBuffer(rtcp_plaintext_ref, offset, 16 + 4);
+
+            /* transformPacket always encrypts. Call processPacketAesGcm directly to authenticate without encrypting. */
+            SrtcpCryptoContext rtcpSend = senderFactory.deriveControlContext(0xcafebabe);
+            assertEquals(SrtpErrorStatus.OK, rtcpSend.processPacketAesGcm(rtcpPkt, 0, true, true));
+            /* The index 0, with the flag which says that the packet is encrypted not set. */
+            rtcpPkt.append(new byte[4], 4);
+
+            assertEquals(rtcp_plaintext_ref.length + 16 + 4, rtcpPkt.getLength());
+            assertArrayEquals(rtcp_plaintext_ref,
+                Arrays.copyOfRange(rtcpPkt.getBuffer(), offset, offset + rtcp_plaintext_ref.length));
+
+            /* A changed packet is refused. */
+            ByteArrayBuffer changed = new ByteArrayBufferImpl(rtcpPkt.getBuffer().clone(), offset, rtcpPkt.getLength());
+            changed.getBuffer()[offset + 9] ^= 1;
+            assertEquals(SrtpErrorStatus.AUTH_FAIL,
+                receiverFactory.deriveControlContext(0xcafebabe).reverseTransformPacket(changed));
+
+            assertEquals(SrtpErrorStatus.OK,
+                receiverFactory.deriveControlContext(0xcafebabe).reverseTransformPacket(rtcpPkt));
+            assertByteArrayBufferEquals(rtcp_plaintext_ref, rtcpPkt);
+        }
+
+        senderFactory.close();
+        receiverFactory.close();
+    }
+
     @Test
     public void srtpValidateGcm() throws Exception
     {

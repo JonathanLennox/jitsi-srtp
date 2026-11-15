@@ -192,7 +192,8 @@ public class SrtcpCryptoContext
                 pkt.getBuffer(), pkt.getOffset() + payloadOffset, payloadLength);
     }
 
-    private SrtpErrorStatus processPacketAesGcm(ByteArrayBuffer pkt, int index,
+    /* Package-private for tests. */
+    SrtpErrorStatus processPacketAesGcm(ByteArrayBuffer pkt, int index,
         boolean authenticationOnly, boolean encrypting)
     {
         int ssrc = SrtcpPacketUtils.getSenderSsrc(pkt);
@@ -267,7 +268,7 @@ public class SrtcpCryptoContext
                 cipher.processAAD(rbStore, 0, 4);
 
                 int processLen = cipher.process(
-                    pkt.getBuffer(), aadLen, bufferedTagLen);
+                    pkt.getBuffer(), pkt.getOffset() + aadLen, bufferedTagLen);
 
                 pkt.setLength(aadLen + processLen);
             }
@@ -432,6 +433,7 @@ public class SrtcpCryptoContext
         }
         else if (policy.getEncType() == SrtpPolicy.AESGCM_ENCRYPTION)
         {
+            pkt.shrink(4); /* Index is processed separately as part of AAD. */
             err = processPacketAesGcm(pkt, index, true, false);
             if (err != SrtpErrorStatus.OK)
             {
