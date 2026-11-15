@@ -24,6 +24,7 @@ import org.jitsi.utils.logging2.*;
 import org.junit.jupiter.api.*;
 
 import static jakarta.xml.bind.DatatypeConverter.parseHexBinary;
+import java.security.*;
 import java.util.*;
 
 
@@ -570,6 +571,23 @@ public class SrtpValidationTest {
         assertThrows(IllegalArgumentException.class, () -> factory2.deriveContext(0xcafebabe, 0));
         assertThrows(IllegalArgumentException.class, () -> factory2.deriveControlContext(0xcafebabe));
         factory2.close();
+    }
+
+    /**
+     * The keys of a context are derived with the cipher of its encryption type. Without one, an authentication key
+     * cannot be derived.
+     */
+    @Test
+    public void authenticationWithoutEncryptionIsRefused() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.NULL_ENCRYPTION, 0, SrtpPolicy.HMACSHA1_AUTHENTICATION, 160/8, 80/8, 0);
+        SrtpContextFactory factory = new SrtpContextFactory(true, null, null, policy, policy, logger);
+        assertThrows(GeneralSecurityException.class, () -> factory.deriveContext(0xcafebabe, 0));
+        assertThrows(GeneralSecurityException.class, () -> factory.deriveControlContext(0xcafebabe));
+        factory.close();
     }
 
     @Test

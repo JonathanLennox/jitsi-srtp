@@ -124,6 +124,10 @@ class SrtpKdf
         {
             return;
         }
+        if (cipherCtr == null)
+        {
+            throw new GeneralSecurityException("Key derivation is not supported with the null encryption type");
+        }
 
         assert(masterSalt.length < ivStore.length);
         System.arraycopy(masterSalt, 0, ivStore, 0, masterSalt.length);
