@@ -471,6 +471,37 @@ public class SrtpValidationTest {
         }
     }
 
+    /**
+     * Protects the reference RTCP packet with F8, and checks that all of it after the first 8 bytes is encrypted and
+     * that a receiver gets the packet back.
+     */
+    @Test
+    public void srtcpF8RoundTrip() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+        SrtpContextFactory receiverFactory =
+            new SrtpContextFactory(false, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+
+        for (int offset : new int[] { 0, 7 })
+        {
+            ByteArrayBuffer rtcpPkt = packetInBuffer(rtcp_plaintext_ref, offset, 0);
+
+            assertEquals(SrtpErrorStatus.OK, senderFactory.deriveControlContext(0xcafebabe).transformPacket(rtcpPkt));
+            assertEquals(rtcp_plaintext_ref.length + 4 + 80/8, rtcpPkt.getLength());
+            assertEncrypted(rtcp_plaintext_ref, rtcpPkt, 8, rtcp_plaintext_ref.length);
+
+            assertEquals(SrtpErrorStatus.OK,
+                receiverFactory.deriveControlContext(0xcafebabe).reverseTransformPacket(rtcpPkt));
+            assertByteArrayBufferEquals(rtcp_plaintext_ref, rtcpPkt);
+        }
+
+        senderFactory.close();
+        receiverFactory.close();
+    }
+
     @Test
     public void srtpValidateGcm() throws Exception
     {

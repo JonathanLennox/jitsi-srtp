@@ -322,10 +322,10 @@ public class SrtcpCryptoContext
         // The fixed header follows and fills the rest of the IV
         System.arraycopy(pkt.getBuffer(), pkt.getOffset(), ivStore, 8, 8);
 
-        // Encrypted part excludes fixed header (8 bytes), index (4 bytes), and
-        // authentication tag (variable according to policy)
+        // Encrypted part excludes fixed header (8 bytes). The index and the
+        // authentication tag are not part of the packet here.
         int payloadOffset = 8;
-        int payloadLength = pkt.getLength() - (4 + policy.getAuthTagLength());
+        int payloadLength = pkt.getLength() - payloadOffset;
 
         cipher.setIV(ivStore, Cipher.ENCRYPT_MODE);
         cipher.process(
