@@ -844,6 +844,8 @@ public class SrtpCryptoContext
      * (RTPManager managed transportation) instead.
      *
      * @param pkt the RTP packet that is going to be sent out
+     * @return {@link SrtpErrorStatus#OK} if the packet was transformed. With any other status, and when an exception
+     * is thrown, the contents of the packet are not specified, and it must not be sent.
      */
     synchronized public SrtpErrorStatus transformPacket(ByteArrayBuffer pkt)
         throws GeneralSecurityException
@@ -852,6 +854,11 @@ public class SrtpCryptoContext
         {
             throw new IllegalStateException("transformPacket called on SRTP receiver");
         }
+
+        /* The authentication tag is written after the packet: by the cipher for AES-GCM, which does not grow the
+         * buffer, and appended for HMAC. Grow the buffer for it in one step. */
+        pkt.grow(policy.getAuthTagLength());
+
         int seqNo = SrtpPacketUtils.getSequenceNumber(pkt);
 
         if (!seqNumSet)
@@ -894,7 +901,9 @@ public class SrtpCryptoContext
             break;
 
         case SrtpPolicy.AESGCM_ENCRYPTION:
-            processPacketAesGcm(pkt, true, useCryptex, false);
+            /* Return the failure instead of reporting OK. */
+            if ((err = processPacketAesGcm(pkt, true, useCryptex, false)) != SrtpErrorStatus.OK)
+                return err;
             break;
 
         // Encrypt the packet using F8 Mode encryption.

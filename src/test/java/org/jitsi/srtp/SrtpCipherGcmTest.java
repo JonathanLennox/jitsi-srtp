@@ -19,6 +19,7 @@ import org.jitsi.srtp.crypto.*;
 import org.junit.jupiter.api.*;
 
 import javax.crypto.*;
+import java.security.*;
 import java.util.*;
 
 import static jakarta.xml.bind.DatatypeConverter.parseHexBinary;
@@ -126,12 +127,34 @@ public class SrtpCipherGcmTest
         }
     }
 
+    /**
+     * Encrypting in place writes the authentication tag after the ciphertext. The cipher throws
+     * ShortBufferException when the array has room for less than the whole tag, and does not change the array.
+     */
+    private void testEncryptWithoutRoomForTag(SrtpCipherGcm cipher, final byte[] expectedCiphertext)
+        throws Exception
+    {
+        for (int room = 0; room < 16; room++)
+        {
+            byte[] data = Arrays.copyOf(TV_Packet, TV_Packet.length + room);
+
+            assertThrows(ShortBufferException.class, () -> encryptBuffer(cipher, data),
+                "with room for " + room + " bytes of the tag");
+            assertArrayEquals(Arrays.copyOf(TV_Packet, TV_Packet.length + room), data,
+                "with room for " + room + " bytes of the tag");
+        }
+
+        /* The cipher still works afterwards. */
+        testEncryptGcmCipherKey(cipher, expectedCiphertext);
+    }
+
     private void testGcmCipherKey(SrtpCipherGcm cipher, final byte[] key, final byte[] expectedCiphertext)
         throws Exception
     {
         cipher.init(key, null);
         testEncryptGcmCipherKey(cipher, expectedCiphertext);
         testDecryptGcmCipherKey(cipher, expectedCiphertext, false);
+        testEncryptWithoutRoomForTag(cipher, expectedCiphertext);
     }
 
     private void testGcmCipher(SrtpCipherGcm cipher)
@@ -146,6 +169,27 @@ public class SrtpCipherGcmTest
         throws Exception
     {
         SrtpCipherGcm cipher = new SrtpCipherGcm(Cipher.getInstance("AES/GCM/NoPadding"));
+
+        testGcmCipher(cipher);
+    }
+
+    @Test
+    public void testSrtpCipherSunJce()
+        throws Exception
+    {
+        Assumptions.assumeTrue(Security.getProvider("SunJCE") != null, "this JVM has no SunJCE provider");
+
+        SrtpCipherGcm cipher = new SrtpCipherGcm(new Aes.SunJCECipherFactory().createCipher("AES/GCM/NoPadding"));
+
+        testGcmCipher(cipher);
+    }
+
+    @Test
+    public void testSrtpCipherBouncyCastle()
+        throws Exception
+    {
+        SrtpCipherGcm cipher =
+            new SrtpCipherGcm(new Aes.BouncyCastleCipherFactory().createCipher("AES/GCM/NoPadding"));
 
         testGcmCipher(cipher);
     }

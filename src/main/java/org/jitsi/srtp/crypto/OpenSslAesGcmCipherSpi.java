@@ -149,13 +149,7 @@ public final class OpenSslAesGcmCipherSpi
     @Override
     protected void engineUpdateAAD(byte[] input, int inputOffset, int inputLen)
     {
-        if (inputOffset + inputLen > input.length)
-        {
-            throw new IllegalArgumentException(
-                "Input buffer length " + input.length +
-                    " is too short for offset " + inputOffset + " plus length "
-                    + inputLen);
-        }
+        checkInput(input, inputOffset, inputLen);
         doCipherUpdate(input, inputOffset, inputLen, null, 0);
     }
 
@@ -164,19 +158,8 @@ public final class OpenSslAesGcmCipherSpi
         byte[] output, int outputOffset) throws
         ShortBufferException, AEADBadTagException
     {
-        int needed = getOutputSize(inputLen, false);
-        if (output.length - outputOffset < needed)
-        {
-            throw new ShortBufferException("Output buffer needs at least " +
-                needed + "bytes");
-        }
-        if (inputOffset + inputLen > input.length)
-        {
-            throw new IllegalArgumentException(
-                "Input buffer length " + input.length +
-                    " is too short for offset " + inputOffset + " plus length "
-                    + inputLen);
-        }
+        /* When encrypting the tag is written after the ciphertext. */
+        checkBuffers(input, inputOffset, inputLen, output, outputOffset, getOutputSize(inputLen, true));
 
         int outLen;
 

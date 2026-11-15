@@ -284,6 +284,139 @@ public class SrtpValidationTest {
             "ea31123ba88ce61e" +
             "80000001");
 
+    /**
+     * Checks that a packet is protected correctly with every amount of room after the data, from none to
+     * {@code maxRoom}; the buffer is grown when needed. An SRTP packet gets the authentication tag appended, an SRTCP
+     * packet the index and the authentication tag.
+     *
+     * @param maxRoom the most room to leave after the data, the number of bytes appended to an SRTCP packet.
+     */
+    private void checkBufferIsGrown(SrtpPolicy policy, byte[] key, byte[] salt, byte[] srtpReference,
+        byte[] srtcpReference, int maxRoom) throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        for (int offset : new int[] { 0, 7 })
+        {
+            for (int room = 0; room <= maxRoom; room++)
+            {
+                String description = "offset " + offset + ", room for " + room + " bytes";
+                SrtpContextFactory senderFactory = new SrtpContextFactory(true, key, salt, policy, policy, logger);
+
+                SrtpCryptoContext rtpSend = senderFactory.deriveContext(0xcafebabe, 0);
+                ByteArrayBuffer rtpPkt = packetInBuffer(rtp_plaintext_ref, offset, room);
+
+                assertEquals(SrtpErrorStatus.OK, rtpSend.transformPacket(rtpPkt), description);
+                assertPacketEquals(srtpReference, rtpPkt, description);
+
+                SrtcpCryptoContext rtcpSend = senderFactory.deriveControlContext(0xcafebabe);
+                /* The reference SRTCP packet has an index of 1, and the first packet protected gets an index of 0. */
+                rtcpSend.transformPacket(packetInBuffer(rtcp_plaintext_ref, 0, maxRoom));
+                ByteArrayBuffer rtcpPkt = packetInBuffer(rtcp_plaintext_ref, offset, room);
+
+                assertEquals(SrtpErrorStatus.OK, rtcpSend.transformPacket(rtcpPkt), description);
+                assertPacketEquals(srtcpReference, rtcpPkt, description);
+
+                senderFactory.close();
+            }
+        }
+    }
+
+    /**
+     * Returns a packet with the contents {@code data}, in a buffer with {@code offset} bytes before the data and
+     * {@code room} bytes after it.
+     */
+    private static ByteArrayBuffer packetInBuffer(byte[] data, int offset, int room)
+    {
+        byte[] buffer = new byte[offset + data.length + room];
+        System.arraycopy(data, 0, buffer, offset, data.length);
+        return new ByteArrayBufferImpl(buffer, offset, data.length);
+    }
+
+    private static void assertPacketEquals(byte[] expected, ByteArrayBuffer pkt, String description)
+    {
+        assertTrue(pkt.getOffset() + pkt.getLength() <= pkt.getBuffer().length, description);
+        assertByteArrayBufferEquals(expected, pkt);
+    }
+
+    /**
+     * A packet whose buffer does not grow, so that protecting it with AES-GCM fails when it has no room for the tag.
+     */
+    private static class FixedBuffer extends ByteArrayBufferImpl
+    {
+        FixedBuffer(byte[] data)
+        {
+            super(data.clone(), 0, data.length);
+        }
+
+        @Override
+        public void grow(int howMuch)
+        {
+        }
+    }
+
+    /**
+     * A packet which cannot be protected is reported, and the context protects the packets after it.
+     */
+    @Test
+    public void srtpGcmReportsFailure() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.AESGCM_ENCRYPTION, 128/8,
+                SrtpPolicy.NULL_AUTHENTICATION, 0,
+                128/8, 96/8 );
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key_gcm, test_key_salt_gcm, policy, policy, logger);
+
+        SrtpCryptoContext rtpSend = senderFactory.deriveContext(0xcafebabe, 0);
+
+        /* The packet before the reference packet: a cipher may refuse the IV of a packet which failed. */
+        byte[] previous = rtp_plaintext_ref.clone();
+        previous[3]--;
+        assertEquals(SrtpErrorStatus.FAIL, rtpSend.transformPacket(new FixedBuffer(previous)));
+
+        ByteArrayBuffer rtpPkt = packetInBuffer(rtp_plaintext_ref, 0, 0);
+        assertEquals(SrtpErrorStatus.OK, rtpSend.transformPacket(rtpPkt));
+        assertPacketEquals(srtp_ciphertext_gcm, rtpPkt, "after a failure");
+
+        SrtcpCryptoContext rtcpSend = senderFactory.deriveControlContext(0xcafebabe);
+
+        assertEquals(SrtpErrorStatus.FAIL, rtcpSend.transformPacket(new FixedBuffer(rtcp_plaintext_ref)));
+
+        /* The reference SRTCP packet has an index of 1. The packet which failed used up the index 0. */
+        ByteArrayBuffer rtcpPkt = packetInBuffer(rtcp_plaintext_ref, 0, 0);
+        assertEquals(SrtpErrorStatus.OK, rtcpSend.transformPacket(rtcpPkt));
+        assertPacketEquals(srtcp_ciphertext_gcm, rtcpPkt, "after a failure");
+
+        senderFactory.close();
+    }
+
+    @Test
+    public void srtpCtrHmacGrowsBuffer() throws Exception
+    {
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.AESCM_ENCRYPTION, 128/8,
+                SrtpPolicy.HMACSHA1_AUTHENTICATION, 160/8,
+                80/8, 112/8 );
+
+        checkBufferIsGrown(policy, test_key, test_key_salt, srtp_ciphertext, srtcp_ciphertext, 4 + 80/8);
+    }
+
+    @Test
+    public void srtpGcmGrowsBuffer() throws Exception
+    {
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.AESGCM_ENCRYPTION, 128/8,
+                SrtpPolicy.NULL_AUTHENTICATION, 0,
+                128/8, 96/8 );
+
+        checkBufferIsGrown(policy, test_key_gcm, test_key_salt_gcm, srtp_ciphertext_gcm, srtcp_ciphertext_gcm,
+            4 + 128/8);
+    }
+
     @Test
     public void srtpValidateGcm() throws Exception
     {
