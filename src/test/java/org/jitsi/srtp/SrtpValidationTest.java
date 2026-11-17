@@ -1042,6 +1042,40 @@ public class SrtpValidationTest {
             policy.getAuthTagLength() + 4);
     }
 
+    /**
+     * With cryptex, a packet that has CSRCs and no header extension gets an empty header extension, which is four
+     * more bytes. The buffer is grown for those bytes and for the authentication tag, whatever room it has.
+     */
+    @Test
+    public void cryptexGcmGrowsBufferForInsertedHeader() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        SrtpPolicy policy =
+            new SrtpPolicy(SrtpPolicy.AESGCM_ENCRYPTION, 128/8,
+                SrtpPolicy.NULL_AUTHENTICATION, 0,
+                128/8, 96/8 );
+        policy.setCryptexEnabled(true);
+
+        /* Below an offset of 4 the payload is moved forward, from 4 the header is moved back. */
+        for (int offset : new int[] { 0, 3, 4, 7 })
+        {
+            for (int room = 0; room <= 4 + policy.getAuthTagLength(); room++)
+            {
+                String description = "offset " + offset + ", room for " + room + " bytes";
+                SrtpContextFactory senderFactory =
+                    new SrtpContextFactory(true, test_key_gcm, test_key_salt_gcm, policy, policy, logger);
+                SrtpCryptoContext rtpSend = senderFactory.deriveContext(0xcafebabe, 0);
+                ByteArrayBuffer pkt = packetInBuffer(rtp_nohdr_cc, offset, room);
+
+                assertEquals(SrtpErrorStatus.OK, rtpSend.transformPacket(pkt), description);
+                assertPacketEquals(srtp_1byte_empty_hdrext_cc_cryptex_gcm, pkt, description);
+
+                senderFactory.close();
+            }
+        }
+    }
+
     @Test
     public void rejectInvalidCryptexGcm() throws Exception
     {

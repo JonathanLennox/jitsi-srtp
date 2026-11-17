@@ -855,10 +855,6 @@ public class SrtpCryptoContext
             throw new IllegalStateException("transformPacket called on SRTP receiver");
         }
 
-        /* The authentication tag is written after the packet: by the cipher for AES-GCM, which does not grow the
-         * buffer, and appended for HMAC. Grow the buffer for it in one step. */
-        pkt.grow(policy.getAuthTagLength());
-
         int seqNo = SrtpPacketUtils.getSequenceNumber(pkt);
 
         if (!seqNumSet)
@@ -884,6 +880,11 @@ public class SrtpCryptoContext
         {
             insertZeroLengthHeader(pkt);
         }
+
+        /* The authentication tag is written after the packet: by the cipher for AES-GCM, which does not grow the
+         * buffer, and appended for HMAC. Grow the buffer for it in one step. This comes after the header extension
+         * is inserted, which makes the packet longer and can use room after it. */
+        pkt.grow(policy.getAuthTagLength());
 
         boolean useCryptex = useCryptex(pkt, true);
 
