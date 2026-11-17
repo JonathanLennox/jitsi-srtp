@@ -26,6 +26,8 @@ import org.junit.jupiter.api.*;
 import static jakarta.xml.bind.DatatypeConverter.parseHexBinary;
 import java.security.*;
 import java.util.*;
+import javax.crypto.*;
+import org.jitsi.srtp.crypto.*;
 
 
 public class SrtpValidationTest {
@@ -501,6 +503,85 @@ public class SrtpValidationTest {
 
         senderFactory.close();
         receiverFactory.close();
+    }
+
+    /**
+     * Encrypts {@code packet} from {@code encryptFrom} with AES-F8, with the session keys for {@code encLabel} and
+     * {@code saltLabel} and the IV {@code iv}. This does not use the crypto contexts: the keys come from the key
+     * derivation function and the encryption from the cipher, which have their own tests against the vectors of
+     * RFC 3711, and the caller builds the IV as RFC 3711 describes it.
+     */
+    private static byte[] f8Reference(byte[] packet, int encryptFrom, byte[] iv, byte encLabel, byte saltLabel)
+        throws Exception
+    {
+        SrtpKdf kdf = new SrtpKdf(test_key, test_key_salt, F8_POLICY);
+        byte[] encKey = new byte[F8_POLICY.getEncKeyLength()];
+        byte[] saltKey = new byte[F8_POLICY.getSaltKeyLength()];
+        kdf.deriveSessionKey(encKey, encLabel);
+        kdf.deriveSessionKey(saltKey, saltLabel);
+
+        SrtpCipherF8 cipher = new SrtpCipherF8(Aes.createCipher("AES/ECB/NoPadding"));
+        cipher.init(encKey, saltKey);
+        cipher.setIV(iv, Cipher.ENCRYPT_MODE);
+
+        byte[] data = packet.clone();
+        cipher.process(data, encryptFrom, data.length - encryptFrom);
+        return data;
+    }
+
+    /**
+     * The F8 round trip tests use this library on both sides. These check the packets on the wire against RFC 3711:
+     * which bytes are encrypted, and the layout of the IV.
+     */
+    @Test
+    public void srtpF8WireFormat() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        /* RFC 3711, section 4.1.2.2: IV = 0x00 || M || PT || SEQ || TS || SSRC || ROC. */
+        byte[] iv = new byte[16];
+        System.arraycopy(rtp_plaintext_ref, 1, iv, 1, 11);
+        /* The ROC is 0, in bytes 12 to 15. */
+
+        byte[] expected =
+            f8Reference(rtp_plaintext_ref, 12, iv, SrtpKdf.LABEL_RTP_ENCRYPTION, SrtpKdf.LABEL_RTP_SALT);
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+        ByteArrayBuffer rtpPkt = packetInBuffer(rtp_plaintext_ref, 0, 0);
+
+        assertEquals(SrtpErrorStatus.OK, senderFactory.deriveContext(0xcafebabe, 0).transformPacket(rtpPkt));
+        /* The authentication tag follows the encrypted packet. */
+        assertArrayEquals(expected, Arrays.copyOf(rtpPkt.getBuffer(), expected.length));
+
+        senderFactory.close();
+    }
+
+    @Test
+    public void srtcpF8WireFormat() throws Exception
+    {
+        Logger logger = new LoggerImpl(getClass().getName());
+
+        /* RFC 3711, section 4.1.2.3: IV = 0..0 || E || SRTCP index || V || P || RC || PT || length || SSRC.
+         * The first packet of a context has the index 0, and E is the highest bit of the index word. */
+        byte[] iv = new byte[16];
+        iv[4] = (byte) 0x80;
+        System.arraycopy(rtcp_plaintext_ref, 0, iv, 8, 8);
+
+        byte[] expected =
+            f8Reference(rtcp_plaintext_ref, 8, iv, SrtpKdf.LABEL_RTCP_ENCRYPTION, SrtpKdf.LABEL_RTCP_SALT);
+
+        SrtpContextFactory senderFactory =
+            new SrtpContextFactory(true, test_key, test_key_salt, F8_POLICY, F8_POLICY, logger);
+        ByteArrayBuffer rtcpPkt = packetInBuffer(rtcp_plaintext_ref, 0, 0);
+
+        assertEquals(SrtpErrorStatus.OK, senderFactory.deriveControlContext(0xcafebabe).transformPacket(rtcpPkt));
+        assertArrayEquals(expected, Arrays.copyOf(rtcpPkt.getBuffer(), expected.length));
+        /* The E flag and the index follow the encrypted packet, and the authentication tag follows them. */
+        assertArrayEquals(new byte[] { (byte) 0x80, 0, 0, 0 },
+            Arrays.copyOfRange(rtcpPkt.getBuffer(), expected.length, expected.length + 4));
+
+        senderFactory.close();
     }
 
     /**

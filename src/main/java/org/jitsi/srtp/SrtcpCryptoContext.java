@@ -304,8 +304,8 @@ public class SrtcpCryptoContext
     private void processPacketAesF8(ByteArrayBuffer pkt, int index)
         throws GeneralSecurityException
     {
-        // 4 bytes of the iv are zero
-        // the first byte of the RTP header is not used.
+        // The IV is 4 bytes of zero, the E flag and the SRTCP index, and the first 8 bytes of the RTCP header
+        // (RFC 3711, section 4.1.2.3).
         ivStore[0] = 0;
         ivStore[1] = 0;
         ivStore[2] = 0;
