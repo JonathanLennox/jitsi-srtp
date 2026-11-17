@@ -248,6 +248,48 @@ public abstract class OpenSslAesCipherSpi
     }
 
     /**
+     * Checks that the range an operation reads is inside its input array. The native code uses the offset and the
+     * length as given, without checking them against the array.
+     *
+     * @throws IllegalArgumentException if the offset or the length is negative, or the range is not inside
+     * {@code input}.
+     */
+    static void checkInput(byte[] input, int inputOffset, int inputLen)
+    {
+        if (inputOffset < 0 || inputLen < 0 || inputLen > input.length - inputOffset)
+        {
+            throw new IllegalArgumentException("Input buffer length " + input.length +
+                " is too short for offset " + inputOffset + " plus length " + inputLen);
+        }
+    }
+
+    /**
+     * Checks that an operation stays inside its input and output arrays. The native code uses the offsets and the
+     * lengths as given, without checking them against the arrays.
+     *
+     * @param needed the number of bytes the operation writes to {@code output}, starting at {@code outputOffset}.
+     * @throws ShortBufferException if {@code output} does not have room for {@code needed} bytes after
+     * {@code outputOffset}.
+     * @throws IllegalArgumentException if an offset or length is negative, or the input range is not inside
+     * {@code input}.
+     */
+    protected static void checkBuffers(byte[] input, int inputOffset, int inputLen,
+        byte[] output, int outputOffset, int needed) throws ShortBufferException
+    {
+        checkInput(input, inputOffset, inputLen);
+        if (outputOffset < 0)
+        {
+            throw new IllegalArgumentException("Invalid output offset " + outputOffset);
+        }
+        /* A negative needed is a sum which overflowed. */
+        if (needed < 0 || output.length - outputOffset < needed)
+        {
+            throw new ShortBufferException("Output buffer needs at least " +
+                needed + " bytes");
+        }
+    }
+
+    /**
      * Call EVP_CipherUpdate, throwing on failure.
      */
     protected void doCipherUpdate(byte[] input, int inputOffset, int inputLen,
@@ -264,17 +306,7 @@ public abstract class OpenSslAesCipherSpi
     protected int engineUpdate(byte[] input, int inputOffset, int inputLen,
         byte[] output, int outputOffset) throws ShortBufferException
     {
-        int needed = getOutputSize(inputLen, false);
-        if (output.length - outputOffset < needed)
-        {
-            throw new ShortBufferException("Output buffer needs at least " +
-                needed + "bytes");
-        }
-        if (inputOffset + inputLen > input.length)
-        {
-            throw new IllegalArgumentException("Input buffer length " + input.length +
-                " is too short for offset " + inputOffset + " plus length " + inputLen);
-        }
+        checkBuffers(input, inputOffset, inputLen, output, outputOffset, getOutputSize(inputLen, false));
 
         doCipherUpdate(input, inputOffset, inputLen, output, outputOffset);
         return inputLen;
@@ -304,17 +336,7 @@ public abstract class OpenSslAesCipherSpi
         byte[] output, int outputOffset) throws
         ShortBufferException, AEADBadTagException
     {
-        int needed = getOutputSize(inputLen, false);
-        if (output.length - outputOffset < needed)
-        {
-            throw new ShortBufferException("Output buffer needs at least " +
-                needed + "bytes");
-        }
-        if (inputOffset + inputLen > input.length)
-        {
-            throw new IllegalArgumentException("Input buffer length " + input.length +
-                " is too short for offset " + inputOffset + " plus length " + inputLen);
-        }
+        checkBuffers(input, inputOffset, inputLen, output, outputOffset, getOutputSize(inputLen, true));
 
         doCipherUpdate(input, inputOffset, inputLen, output, outputOffset);
         return inputLen;

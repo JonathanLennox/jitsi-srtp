@@ -457,6 +457,8 @@ public class SrtcpCryptoContext
      * (RTPManager managed transportation) instead.
      *
      * @param pkt the RTP packet that is going to be sent out
+     * @return {@link SrtpErrorStatus#OK} if the packet was transformed. With any other status, and when an exception
+     * is thrown, the contents of the packet are not specified, and it must not be sent.
      */
     synchronized public SrtpErrorStatus transformPacket(ByteArrayBuffer pkt)
         throws GeneralSecurityException
@@ -481,7 +483,14 @@ public class SrtcpCryptoContext
              * non-encrypted RTCP authenticated with GCM, but that's not generally
              * a thing one wants to do anyway.
              */
-            processPacketAesGcm(pkt, sentIndex, false, true);
+            SrtpErrorStatus err = processPacketAesGcm(pkt, sentIndex, false, true);
+            if (err != SrtpErrorStatus.OK)
+            {
+                /* Return the failure instead of reporting OK. The cipher may have been given the IV of this index,
+                 * so the index is not used for another packet. */
+                nextSentIndex();
+                return err;
+            }
             pkt.append(rbStore, 4);
         }
 
@@ -501,10 +510,15 @@ public class SrtcpCryptoContext
             pkt.append(rbStore, 4);
             pkt.append(tagStore, policy.getAuthTagLength());
         }
-        sentIndex++;
-        sentIndex &= ~0x80000000;       // clear possible overflow
+        nextSentIndex();
 
         return SrtpErrorStatus.OK;
+    }
+
+    private void nextSentIndex()
+    {
+        sentIndex++;
+        sentIndex &= ~0x80000000;       // clear possible overflow
     }
 
     /**
